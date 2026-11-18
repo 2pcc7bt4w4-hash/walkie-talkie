@@ -1,0 +1,1088 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>PTT // 01 — Walkie-Talkie WebRTC</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-primary: #09090B;
+      --surface: #121215;
+      --border: #27272A;
+      --accent-tx: #FF4D00;
+      --accent-rx: #10B981;
+    }
+
+    * {
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    html, body {
+      height: 100dvh;
+      margin: 0;
+      background-color: var(--bg-primary);
+      color: #FAFAFA;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      overflow: hidden;
+      overscroll-behavior: none;
+      padding-top: env(safe-area-inset-top);
+      padding-bottom: env(safe-area-inset-bottom);
+    }
+
+    .font-mono-tech {
+      font-family: 'JetBrains Mono', monospace;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .minimal-card {
+      background-color: var(--surface);
+      border: 1px solid var(--border);
+    }
+
+    /* Botón PTT Arquitectónico */
+    .ptt-core {
+      touch-action: none;
+      user-select: none;
+      -webkit-user-select: none;
+      -webkit-touch-callout: none;
+      background-color: #141418;
+      border: 1px solid #2E2E34;
+      box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.75);
+      transition: transform 0.14s cubic-bezier(0.22, 1, 0.36, 1),
+                  background-color 0.2s ease,
+                  border-color 0.2s ease,
+                  box-shadow 0.2s ease;
+    }
+
+    .ptt-core:active:not(:disabled),
+    .ptt-core.state-tx {
+      transform: scale(0.95);
+      background-color: rgba(255, 77, 0, 0.14);
+      border-color: var(--accent-tx);
+      box-shadow: 0 0 0 1px var(--accent-tx), 0 0 50px -5px rgba(255, 77, 0, 0.38);
+    }
+
+    .ptt-core.state-rx {
+      background-color: rgba(16, 185, 129, 0.10);
+      border-color: var(--accent-rx);
+      box-shadow: 0 0 0 1px var(--accent-rx), 0 0 45px -5px rgba(16, 185, 129, 0.28);
+    }
+
+    .ptt-core:disabled {
+      opacity: 0.42;
+      cursor: not-allowed;
+    }
+
+    .ptt-ring {
+      border: 1px solid #27272A;
+      transition: transform 0.25s cubic-bezier(0.22, 1, 0.36, 1), border-color 0.25s ease;
+    }
+
+    .ptt-ring.ring-tx {
+      border-color: rgba(255, 77, 0, 0.5);
+      transform: scale(1.07);
+    }
+
+    .ptt-ring.ring-rx {
+      border-color: rgba(16, 185, 129, 0.5);
+      transform: scale(1.05);
+    }
+
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.35; transform: scale(0.85); }
+    }
+
+    .led-pulse {
+      animation: pulse-dot 1.4s infinite ease-in-out;
+    }
+  </style>
+</head>
+<body class="flex flex-col justify-between max-w-md mx-auto px-5 py-4">
+
+  <!-- BARRA SUPERIOR MINIMALISTA -->
+  <header class="flex items-center justify-between h-11">
+    <div class="flex items-center gap-2.5">
+      <span id="status-dot" class="w-2 h-2 rounded-full bg-zinc-600 transition-colors duration-300"></span>
+      <span class="font-mono-tech text-xs font-semibold tracking-widest uppercase text-zinc-400">
+        PTT // 01
+      </span>
+      <span id="wakelock-tag" class="hidden font-mono-tech text-[10px] px-1.5 py-0.5 rounded bg-zinc-900 text-zinc-400 border border-zinc-800">
+        AWAKE
+      </span>
+    </div>
+
+    <div class="flex items-center gap-1.5">
+      <!-- Toggle Tonos de Interfaz -->
+      <button id="btn-toggle-sfx" class="h-8 px-2.5 rounded-lg minimal-card text-zinc-300 hover:text-white hover:border-zinc-600 transition flex items-center gap-1.5" title="Activar/Silenciar tonos">
+        <svg id="icon-sfx-on" xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 text-zinc-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+        </svg>
+        <svg id="icon-sfx-off" xmlns="http://www.w3.org/2000/svg" class="hidden w-3.5 h-3.5 text-zinc-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15zM17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" />
+        </svg>
+        <span class="font-mono-tech text-[10px] uppercase">TONOS</span>
+      </button>
+
+      <!-- Botón Salir del Canal -->
+      <button id="btn-leave" class="hidden h-8 px-2.5 rounded-lg minimal-card text-zinc-400 hover:text-red-400 hover:border-red-900/60 transition font-mono-tech text-[10px] uppercase">
+        SALIR
+      </button>
+    </div>
+  </header>
+
+  <!-- BANNER DE DIAGNÓSTICO / AVISOS -->
+  <div id="banner-msg" class="hidden my-1 px-3 py-2 rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-200 font-mono-tech text-[11px] text-center transition-all"></div>
+
+  <!-- VISTA 1: CONFIGURACIÓN DE CANAL -->
+  <main id="view-setup" class="flex-1 flex flex-col justify-center gap-5 my-auto">
+    <div class="space-y-1.5">
+      <h1 class="text-2xl font-semibold tracking-tight text-zinc-100">
+        Radio directo P2P
+      </h1>
+      <p class="text-sm text-zinc-400 leading-relaxed">
+        Voz instantánea en iPhone y Android sobre Wi-Fi o datos 4G/5G.
+      </p>
+    </div>
+
+    <div class="minimal-card rounded-2xl p-5 space-y-5">
+      <!-- 01 Crear canal -->
+      <div class="space-y-2">
+        <label class="block font-mono-tech text-[11px] uppercase tracking-wider text-zinc-500">
+          01 / Nueva frecuencia
+        </label>
+        <button id="btn-create" class="w-full h-12 rounded-xl bg-zinc-100 hover:bg-white active:scale-[0.99] text-zinc-950 font-semibold text-sm transition flex items-center justify-center gap-2">
+          <span>Crear canal</span>
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
+          </svg>
+        </button>
+      </div>
+
+      <div class="border-t border-zinc-800/80"></div>
+
+      <!-- 02 Unirse a canal -->
+      <div class="space-y-2">
+        <label for="input-code" class="block font-mono-tech text-[11px] uppercase tracking-wider text-zinc-500">
+          02 / Conectar a frecuencia
+        </label>
+        <div class="flex gap-2.5">
+          <input
+            id="input-code"
+            type="text"
+            maxlength="4"
+            placeholder="A7K2"
+            autocomplete="off"
+            autocorrect="off"
+            autocapitalize="characters"
+            spellcheck="false"
+            class="w-1/2 h-12 rounded-xl bg-zinc-950 border border-zinc-800 focus:border-zinc-500 focus:outline-none text-center font-mono-tech text-lg font-semibold tracking-[0.25em] uppercase text-white placeholder-zinc-700 transition"
+          />
+          <button id="btn-join" class="w-1/2 h-12 rounded-xl bg-zinc-800 hover:bg-zinc-700 active:scale-[0.99] text-zinc-100 font-medium text-sm border border-zinc-700/70 transition">
+            Conectar
+          </button>
+        </div>
+      </div>
+
+      <div class="border-t border-zinc-800/80"></div>
+
+      <!-- 03 Verificación rápida de hardware (útil en iOS) -->
+      <div class="flex items-center justify-between">
+        <span class="font-mono-tech text-[10px] uppercase tracking-wider text-zinc-500">
+          DIAGNÓSTICO HARDWARE
+        </span>
+        <button id="btn-test-hw" class="px-3 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 font-mono-tech text-[11px] text-zinc-300 transition active:scale-95">
+          Probar Audio / Mic
+        </button>
+      </div>
+    </div>
+  </main>
+
+  <!-- VISTA 2: INTERFAZ ACTIVA DE WALKIE-TALKIE -->
+  <main id="view-radio" class="hidden flex-1 flex-col justify-between py-2">
+
+    <!-- Tarjeta de Telemetría y Código -->
+    <section class="minimal-card rounded-2xl p-4 flex items-center justify-between">
+      <div>
+        <span class="block font-mono-tech text-[10px] uppercase tracking-widest text-zinc-500">
+          CANAL ACTIVO
+        </span>
+        <div class="flex items-center gap-2 mt-0.5">
+          <span id="display-code" class="font-mono-tech text-2xl font-bold tracking-[0.2em] text-zinc-100">
+            ----
+          </span>
+          <button id="btn-copy" class="p-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-400 hover:text-zinc-200 transition active:scale-95" title="Copiar código">
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+            </svg>
+          </button>
+          <button id="btn-share" class="p-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-400 hover:text-zinc-200 transition active:scale-95" title="Compartir enlace directo">
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8m-4-6l-4-4m0 0L8 6m4-4v12" />
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- Visualizador de Onda (VU Meter) -->
+      <div class="flex flex-col items-end gap-1.5">
+        <span id="telemetry-badge" class="font-mono-tech text-[10px] uppercase tracking-wider text-zinc-400">
+          STANDBY
+        </span>
+        <canvas id="wave-canvas" class="w-24 h-7 rounded bg-zinc-950/80 border border-zinc-800/80"></canvas>
+      </div>
+    </section>
+
+    <!-- BOTÓN CENTRAL TÁCTIL (PTT) -->
+    <section class="flex-1 flex flex-col items-center justify-center my-3">
+      <div class="relative flex items-center justify-center">
+        <div id="ptt-outer-ring" class="ptt-ring absolute w-60 h-60 sm:w-64 sm:h-64 rounded-full pointer-events-none"></div>
+
+        <button id="btn-ptt" disabled class="ptt-core relative w-52 h-52 sm:w-56 sm:h-56 rounded-full flex flex-col items-center justify-center p-6 text-center">
+          <div id="ptt-indicator" class="w-3 h-3 rounded-full bg-zinc-600 mb-4 transition-colors duration-200"></div>
+
+          <span id="ptt-main-text" class="font-mono-tech text-xs sm:text-sm font-bold tracking-widest uppercase text-zinc-200 pointer-events-none">
+            INICIANDO...
+          </span>
+          <span id="ptt-sub-text" class="text-[11px] text-zinc-500 mt-1.5 pointer-events-none">
+            Conectando señalización
+          </span>
+        </button>
+      </div>
+    </section>
+
+    <!-- Barra inferior de estado P2P y controles -->
+    <section class="minimal-card rounded-xl px-4 py-3 space-y-2">
+      <div class="flex items-center justify-between">
+        <div class="flex items-center gap-2 overflow-hidden">
+          <span class="font-mono-tech text-[10px] text-zinc-500 shrink-0">ESTADO:</span>
+          <span id="link-status-text" class="font-mono-tech text-[11px] text-zinc-300 truncate">SERVIDOR LISTO</span>
+        </div>
+        <div class="flex items-center gap-3 shrink-0">
+          <button id="btn-loopback" class="font-mono-tech text-[10px] px-2 py-0.5 rounded bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white transition" title="Escuchar tu propio micrófono localmente">
+            ECO: OFF
+          </button>
+          <button id="btn-mute-rx" class="font-mono-tech text-[11px] text-zinc-300 hover:text-white transition">
+            RX: ON
+          </button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- PIE DE PÁGINA -->
+  <footer class="h-6 flex items-center justify-center">
+    <span class="font-mono-tech text-[10px] tracking-wider text-zinc-600">
+      WEBRTC ICE/TURN // IOS &amp; ANDROID READY
+    </span>
+  </footer>
+
+  <!-- Reproductor explícito en el DOM para máxima compatibilidad con iOS Safari -->
+  <audio id="remoteAudio" autoplay playsinline class="w-px h-px opacity-0 pointer-events-none"></audio>
+
+  <script>
+    /**
+     * PTT // 01 — Walkie-Talkie WebRTC P2P (iOS Safari + Android Chrome)
+     * Incluye servidores STUN + TURN para redes celulares 4G/5G, desbloqueo de AudioContext
+     * en gestos táctiles, diagnóstico de pasos y prueba local de micrófono (eco/loopback).
+     */
+
+    const PEER_PREFIX = 'wt-chan-';
+
+    // Configuración ICE completa con STUN + TURN público para atravesar NAT de redes móviles 4G/5G
+    const PEER_OPTIONS = {
+      debug: 1,
+      config: {
+        iceServers: [
+          { urls: 'stun:stun.l.google.com:19302' },
+          { urls: 'stun:stun1.l.google.com:19302' },
+          { urls: 'stun:stun2.l.google.com:19302' },
+          {
+            urls: 'turn:openrelay.metered.ca:80',
+            username: 'openrelayproject',
+            credential: 'openrelayproject'
+          },
+          {
+            urls: 'turn:openrelay.metered.ca:443',
+            username: 'openrelayproject',
+            credential: 'openrelayproject'
+          },
+          {
+            urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+            username: 'openrelayproject',
+            credential: 'openrelayproject'
+          }
+        ],
+        iceCandidatePoolSize: 4
+      }
+    };
+
+    const state = {
+      peer: null,
+      mediaConn: null,
+      dataConn: null,
+      localStream: null,
+      remoteStream: null,
+      audioTrack: null,
+      audioCtx: null,
+      localAnalyser: null,
+      remoteAnalyser: null,
+      loopbackGain: null,
+      wakeLock: null,
+      heartbeatTimer: null,
+      roomCode: '',
+      isHost: false,
+      isConnected: false,
+      isTransmitting: false,
+      isReceiving: false,
+      sfxEnabled: true,
+      rxMuted: false,
+      loopbackEnabled: false,
+      animFrameId: null
+    };
+
+    const el = {
+      statusDot: document.getElementById('status-dot'),
+      wakelockTag: document.getElementById('wakelock-tag'),
+      btnToggleSfx: document.getElementById('btn-toggle-sfx'),
+      iconSfxOn: document.getElementById('icon-sfx-on'),
+      iconSfxOff: document.getElementById('icon-sfx-off'),
+      btnLeave: document.getElementById('btn-leave'),
+      bannerMsg: document.getElementById('banner-msg'),
+      viewSetup: document.getElementById('view-setup'),
+      viewRadio: document.getElementById('view-radio'),
+      btnCreate: document.getElementById('btn-create'),
+      inputCode: document.getElementById('input-code'),
+      btnJoin: document.getElementById('btn-join'),
+      btnTestHw: document.getElementById('btn-test-hw'),
+      displayCode: document.getElementById('display-code'),
+      btnCopy: document.getElementById('btn-copy'),
+      btnShare: document.getElementById('btn-share'),
+      telemetryBadge: document.getElementById('telemetry-badge'),
+      waveCanvas: document.getElementById('wave-canvas'),
+      pttOuterRing: document.getElementById('ptt-outer-ring'),
+      btnPtt: document.getElementById('btn-ptt'),
+      pttIndicator: document.getElementById('ptt-indicator'),
+      pttMainText: document.getElementById('ptt-main-text'),
+      pttSubText: document.getElementById('ptt-sub-text'),
+      linkStatusText: document.getElementById('link-status-text'),
+      btnLoopback: document.getElementById('btn-loopback'),
+      btnMuteRx: document.getElementById('btn-mute-rx'),
+      remoteAudio: document.getElementById('remoteAudio')
+    };
+
+    // ==========================================
+    // 1. MOTOR DE AUDIO SINTETIZADO Y DESBLOQUEO iOS
+    // ==========================================
+    const SoundEngine = {
+      unlock() {
+        if (!state.audioCtx) {
+          const AudioCtx = window.AudioContext || window.webkitAudioContext;
+          state.audioCtx = new AudioCtx();
+        }
+        if (state.audioCtx.state === 'suspended') {
+          state.audioCtx.resume().catch(() => {});
+        }
+        // Reproducir un pulso silencioso de 1 sample para desbloquear Safari en iOS
+        try {
+          const buffer = state.audioCtx.createBuffer(1, 1, 22050);
+          const source = state.audioCtx.createBufferSource();
+          source.buffer = buffer;
+          source.connect(state.audioCtx.destination);
+          source.start(0);
+        } catch (e) {}
+      },
+
+      txStart() {
+        if (!state.sfxEnabled) return;
+        try {
+          this.unlock();
+          const ctx = state.audioCtx;
+          const now = ctx.currentTime;
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(880, now);
+          osc.frequency.exponentialRampToValueAtTime(1320, now + 0.055);
+          gain.gain.setValueAtTime(0.09, now);
+          gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.065);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start(now);
+          osc.stop(now + 0.07);
+        } catch (e) {}
+      },
+
+      rogerBeep() {
+        if (!state.sfxEnabled) return;
+        try {
+          this.unlock();
+          const ctx = state.audioCtx;
+          const now = ctx.currentTime;
+          [1174.66, 1567.98].forEach((freq, i) => {
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(freq, now + i * 0.065);
+            gain.gain.setValueAtTime(0.085, now + i * 0.065);
+            gain.gain.exponentialRampToValueAtTime(0.0001, now + i * 0.065 + 0.08);
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start(now + i * 0.065);
+            osc.stop(now + i * 0.065 + 0.085);
+          });
+        } catch (e) {}
+      },
+
+      connected() {
+        if (!state.sfxEnabled) return;
+        try {
+          this.unlock();
+          const ctx = state.audioCtx;
+          const now = ctx.currentTime;
+          [523.25, 783.99, 1046.50].forEach((freq, i) => {
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(freq, now + i * 0.06);
+            gain.gain.setValueAtTime(0.08, now + i * 0.06);
+            gain.gain.exponentialRampToValueAtTime(0.0001, now + i * 0.06 + 0.14);
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start(now + i * 0.06);
+            osc.stop(now + i * 0.06 + 0.15);
+          });
+        } catch (e) {}
+      }
+    };
+
+    // ==========================================
+    // 2. UTILIDADES DE UI, CÓDIGOS Y WAKE LOCK
+    // ==========================================
+    function notify(text, duration = 3500) {
+      el.bannerMsg.textContent = text;
+      el.bannerMsg.classList.remove('hidden');
+      clearTimeout(el.bannerMsg._timeout);
+      el.bannerMsg._timeout = setTimeout(() => {
+        el.bannerMsg.classList.add('hidden');
+      }, duration);
+    }
+
+    function createCode() {
+      const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+      let result = '';
+      for (let i = 0; i < 4; i++) {
+        result += alphabet.charAt(Math.floor(Math.random() * alphabet.length));
+      }
+      return result;
+    }
+
+    function getShareUrl() {
+      const url = new URL(window.location.href);
+      url.searchParams.set('room', state.roomCode);
+      return url.toString();
+    }
+
+    async function activateWakeLock() {
+      if ('wakeLock' in navigator) {
+        try {
+          state.wakeLock = await navigator.wakeLock.request('screen');
+          el.wakelockTag.classList.remove('hidden');
+          state.wakeLock.addEventListener('release', () => {
+            el.wakelockTag.classList.add('hidden');
+          });
+        } catch (e) {}
+      }
+    }
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') {
+        if (state.audioCtx && state.audioCtx.state === 'suspended') {
+          state.audioCtx.resume().catch(() => {});
+        }
+        if (state.peer && !state.peer.destroyed) {
+          activateWakeLock();
+        }
+      }
+    });
+
+    function renderState(uiState) {
+      el.btnPtt.classList.remove('state-tx', 'state-rx');
+      el.pttOuterRing.classList.remove('ring-tx', 'ring-rx');
+      el.statusDot.className = 'w-2 h-2 rounded-full transition-colors duration-300';
+      el.pttIndicator.className = 'w-3 h-3 rounded-full mb-4 transition-colors duration-200';
+
+      if (uiState === 'SETUP') {
+        el.statusDot.classList.add('bg-zinc-600');
+        el.viewSetup.classList.remove('hidden');
+        el.viewRadio.classList.add('hidden');
+        el.viewRadio.classList.remove('flex');
+        el.btnLeave.classList.add('hidden');
+        return;
+      }
+
+      el.viewSetup.classList.add('hidden');
+      el.viewRadio.classList.remove('hidden');
+      el.viewRadio.classList.add('flex');
+      el.btnLeave.classList.remove('hidden');
+      el.displayCode.textContent = state.roomCode;
+
+      switch (uiState) {
+        case 'SIGNALING':
+          el.statusDot.classList.add('bg-amber-400', 'led-pulse');
+          el.telemetryBadge.textContent = 'CONECTANDO';
+          el.telemetryBadge.className = 'font-mono-tech text-[10px] uppercase tracking-wider text-amber-400';
+          el.pttIndicator.classList.add('bg-amber-400', 'led-pulse');
+          el.btnPtt.disabled = true;
+          el.pttMainText.textContent = 'CONECTANDO...';
+          el.pttSubText.textContent = 'Servidor de señalización';
+          el.linkStatusText.textContent = 'REGISTRANDO CANAL...';
+          break;
+
+        case 'WAITING':
+          el.statusDot.classList.add('bg-amber-400', 'led-pulse');
+          el.telemetryBadge.textContent = 'ESPERANDO';
+          el.telemetryBadge.className = 'font-mono-tech text-[10px] uppercase tracking-wider text-amber-400';
+          el.pttIndicator.classList.add('bg-amber-400', 'led-pulse');
+          // Permitimos pulsar PTT incluso esperando si ECO está activo para probar el micrófono
+          el.btnPtt.disabled = !state.loopbackEnabled;
+          el.pttMainText.textContent = state.loopbackEnabled ? 'PRUEBA DE MIC' : 'ESPERANDO PAR';
+          el.pttSubText.textContent = state.loopbackEnabled ? 'Mantén para probar voz' : 'Comparte el código o enlace';
+          el.linkStatusText.textContent = 'SERVIDOR LISTO • ESPERANDO';
+          break;
+
+        case 'READY':
+          el.statusDot.classList.add('bg-zinc-200');
+          el.telemetryBadge.textContent = 'LISTO';
+          el.telemetryBadge.className = 'font-mono-tech text-[10px] uppercase tracking-wider text-zinc-400';
+          el.pttIndicator.classList.add('bg-zinc-400');
+          el.btnPtt.disabled = false;
+          el.pttMainText.textContent = 'MANTÉN PARA HABLAR';
+          el.pttSubText.textContent = 'Canal libre';
+          el.linkStatusText.textContent = 'EN LÍNEA • P2P ACTIVO';
+          break;
+
+        case 'TX':
+          el.statusDot.classList.add('bg-[#FF4D00]', 'led-pulse');
+          el.telemetryBadge.textContent = 'TX // EN VIVO';
+          el.telemetryBadge.className = 'font-mono-tech text-[10px] uppercase tracking-wider text-[#FF4D00]';
+          el.btnPtt.disabled = false;
+          el.btnPtt.classList.add('state-tx');
+          el.pttOuterRing.classList.add('ring-tx');
+          el.pttIndicator.classList.add('bg-[#FF4D00]', 'led-pulse');
+          el.pttMainText.textContent = 'TRANSMITIENDO';
+          el.pttSubText.textContent = 'Suelta para terminar';
+          el.linkStatusText.textContent = state.isConnected ? 'ENVIANDO AUDIO P2P' : 'PROBANDO MICRÓFONO LOCAL';
+          break;
+
+        case 'RX':
+          el.statusDot.classList.add('bg-[#10B981]', 'led-pulse');
+          el.telemetryBadge.textContent = 'RX // ENTRANDO';
+          el.telemetryBadge.className = 'font-mono-tech text-[10px] uppercase tracking-wider text-[#10B981]';
+          el.btnPtt.disabled = true;
+          el.btnPtt.classList.add('state-rx');
+          el.pttOuterRing.classList.add('ring-rx');
+          el.pttIndicator.classList.add('bg-[#10B981]', 'led-pulse');
+          el.pttMainText.textContent = 'RECIBIENDO';
+          el.pttSubText.textContent = 'Canal ocupado';
+          el.linkStatusText.textContent = 'RECIBIENDO AUDIO P2P';
+          break;
+      }
+    }
+
+    // ==========================================
+    // 3. VISUALIZADOR DE ONDA EN TIEMPO REAL
+    // ==========================================
+    function setupWaveformVisualizer() {
+      if (state.animFrameId) cancelAnimationFrame(state.animFrameId);
+      const canvas = el.waveCanvas;
+      const ctx = canvas.getContext('2d');
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = canvas.clientWidth * dpr;
+      canvas.height = canvas.clientHeight * dpr;
+      ctx.scale(dpr, dpr);
+
+      const width = canvas.clientWidth;
+      const height = canvas.clientHeight;
+      const bars = 16;
+      const gap = 3;
+      const barWidth = (width - gap * (bars - 1)) / bars;
+      const dataArray = new Uint8Array(32);
+
+      function draw() {
+        state.animFrameId = requestAnimationFrame(draw);
+        ctx.clearRect(0, 0, width, height);
+
+        let activeAnalyser = null;
+        let color = '#3F3F46';
+
+        if (state.isTransmitting && state.localAnalyser) {
+          activeAnalyser = state.localAnalyser;
+          color = '#FF4D00';
+        } else if (state.isReceiving && state.remoteAnalyser) {
+          activeAnalyser = state.remoteAnalyser;
+          color = '#10B981';
+        }
+
+        if (activeAnalyser) {
+          activeAnalyser.getByteFrequencyData(dataArray);
+        }
+
+        for (let i = 0; i < bars; i++) {
+          let level = 2;
+          if (activeAnalyser) {
+            const val = dataArray[i] || 0;
+            level = Math.max(2, (val / 255) * (height - 4));
+          }
+          const x = i * (barWidth + gap);
+          const y = (height - level) / 2;
+
+          ctx.fillStyle = color;
+          ctx.beginPath();
+          ctx.roundRect(x, y, barWidth, level, 1);
+          ctx.fill();
+        }
+      }
+      draw();
+    }
+
+    // ==========================================
+    // 4. CAPTURA DE MICRÓFONO Y COMPATIBILIDAD iOS
+    // ==========================================
+    async function initMicrophoneAndAudio() {
+      // 1. Desbloquear AudioContext dentro del evento táctil del usuario
+      SoundEngine.unlock();
+
+      // 2. Desbloquear etiqueta <audio> en iOS Safari
+      try {
+        el.remoteAudio.muted = false;
+        el.remoteAudio.volume = 1.0;
+        await el.remoteAudio.play().catch(() => {});
+      } catch (e) {}
+
+      // 3. Solicitar micrófono (nunca al cargar la página, solo al tocar botón)
+      if (!state.localStream) {
+        try {
+          state.localStream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+              echoCancellation: true,
+              noiseSuppression: true,
+              autoGainControl: true
+            },
+            video: false
+          });
+          state.audioTrack = state.localStream.getAudioTracks()[0];
+          state.audioTrack.enabled = false; // Silenciado hasta mantener PTT
+
+          // Configurar analizador local (VU meter) y ruta opcional de eco/prueba
+          const src = state.audioCtx.createMediaStreamSource(state.localStream);
+          state.localAnalyser = state.audioCtx.createAnalyser();
+          state.localAnalyser.fftSize = 64;
+
+          state.loopbackGain = state.audioCtx.createGain();
+          state.loopbackGain.gain.value = state.loopbackEnabled ? 0.85 : 0.0;
+
+          src.connect(state.localAnalyser);
+          src.connect(state.loopbackGain);
+          state.loopbackGain.connect(state.audioCtx.destination);
+        } catch (err) {
+          throw new Error('Permiso de micrófono denegado. Revisa los ajustes de Safari/Chrome.');
+        }
+      }
+
+      await activateWakeLock();
+    }
+
+    // ==========================================
+    // 5. CONEXIÓN PEERJS + WEBRTC BIDIRECCIONAL
+    // ==========================================
+    async function startSession(code, isHost, retryCount = 0) {
+      try {
+        await initMicrophoneAndAudio();
+      } catch (err) {
+        notify(err.message, 5000);
+        return;
+      }
+
+      state.roomCode = code.toUpperCase();
+      state.isHost = isHost;
+
+      // Actualizar URL con ?room=XXXX
+      const url = new URL(window.location.href);
+      url.searchParams.set('room', state.roomCode);
+      window.history.replaceState({}, '', url);
+
+      const peerId = isHost ? `${PEER_PREFIX}${state.roomCode}` : undefined;
+      state.peer = new Peer(peerId, PEER_OPTIONS);
+
+      renderState('SIGNALING');
+      setupWaveformVisualizer();
+
+      state.peer.on('open', () => {
+        if (isHost) {
+          renderState('WAITING');
+          notify(`Canal ${state.roomCode} creado. Esperando dispositivo...`);
+        } else {
+          el.linkStatusText.textContent = `CONECTANDO A ${state.roomCode}...`;
+          const targetId = `${PEER_PREFIX}${state.roomCode}`;
+
+          // Abrir canal de datos para control PTT (floor lock + heartbeat)
+          const conn = state.peer.connect(targetId, { reliable: true });
+          bindDataChannel(conn);
+
+          // Iniciar llamada de audio WebRTC bidireccional
+          const call = state.peer.call(targetId, state.localStream);
+          if (call) {
+            bindMediaCall(call);
+          }
+        }
+      });
+
+      // El anfitrión recibe la conexión de datos del invitado
+      state.peer.on('connection', (conn) => {
+        if (state.dataConn && state.dataConn.open) {
+          conn.close();
+          return;
+        }
+        bindDataChannel(conn);
+      });
+
+      // El anfitrión recibe la llamada de audio y responde con su stream
+      state.peer.on('call', (call) => {
+        call.answer(state.localStream);
+        bindMediaCall(call);
+      });
+
+      state.peer.on('error', (err) => {
+        if (err.type === 'unavailable-id' && isHost && retryCount < 3) {
+          // Si el código aleatorio chocó, generar otro automáticamente
+          if (state.peer) state.peer.destroy();
+          const newCode = createCode();
+          startSession(newCode, true, retryCount + 1);
+          return;
+        }
+
+        if (err.type === 'peer-unavailable') {
+          notify(`No se encontró el canal ${state.roomCode}. Verifica el código.`, 4500);
+          leaveSession();
+        } else if (err.type === 'network' || err.type === 'server-error') {
+          notify('Error de red con el servidor de señalización. Reintentando...', 3500);
+        } else {
+          notify(`Aviso de conexión: ${err.type}`, 3500);
+        }
+      });
+
+      state.peer.on('disconnected', () => {
+        if (state.peer && !state.peer.destroyed) {
+          el.linkStatusText.textContent = 'RECONECTANDO SEÑAL...';
+          state.peer.reconnect();
+        }
+      });
+    }
+
+    function bindDataChannel(conn) {
+      state.dataConn = conn;
+
+      conn.on('open', () => {
+        state.isConnected = true;
+        SoundEngine.connected();
+        renderState('READY');
+        notify('Dispositivo conectado — Canal listo');
+
+        // Keep-alive / heartbeat cada 5s para evitar cortes en redes móviles
+        clearInterval(state.heartbeatTimer);
+        state.heartbeatTimer = setInterval(() => {
+          if (state.dataConn && state.dataConn.open) {
+            state.dataConn.send({ type: 'ping', ts: Date.now() });
+          }
+        }, 5000);
+      });
+
+      conn.on('data', (msg) => {
+        if (!msg || typeof msg !== 'object') return;
+
+        if (msg.type === 'ptt') {
+          if (msg.speaking) {
+            if (state.isTransmitting) forceReleaseTx();
+            state.isReceiving = true;
+            SoundEngine.txStart();
+            renderState('RX');
+          } else {
+            state.isReceiving = false;
+            SoundEngine.rogerBeep();
+            renderState('READY');
+          }
+        }
+      });
+
+      conn.on('close', handlePeerDrop);
+      conn.on('error', handlePeerDrop);
+    }
+
+    function bindMediaCall(call) {
+      state.mediaConn = call;
+
+      call.on('stream', (remoteStream) => {
+        state.remoteStream = remoteStream;
+
+        // 1. Asignar stream al elemento <audio> visible en el DOM
+        el.remoteAudio.srcObject = remoteStream;
+        el.remoteAudio.muted = state.rxMuted;
+        el.remoteAudio.play().catch((err) => {
+          notify('Toca la pantalla para activar el altavoz', 4000);
+        });
+
+        // 2. Conectar analizador remoto para visualizar onda RX
+        try {
+          SoundEngine.unlock();
+          const remoteSrc = state.audioCtx.createMediaStreamSource(remoteStream);
+          state.remoteAnalyser = state.audioCtx.createAnalyser();
+          state.remoteAnalyser.fftSize = 64;
+          remoteSrc.connect(state.remoteAnalyser);
+        } catch (e) {}
+      });
+
+      call.on('close', handlePeerDrop);
+      call.on('error', handlePeerDrop);
+    }
+
+    function handlePeerDrop() {
+      if (!state.isConnected) return;
+      state.isConnected = false;
+      state.isReceiving = false;
+      clearInterval(state.heartbeatTimer);
+      forceReleaseTx();
+      notify('El otro dispositivo se desconectó');
+
+      if (state.isHost) {
+        renderState('WAITING');
+      } else {
+        leaveSession();
+      }
+    }
+
+    function leaveSession() {
+      forceReleaseTx();
+      clearInterval(state.heartbeatTimer);
+      if (state.animFrameId) cancelAnimationFrame(state.animFrameId);
+      if (state.dataConn) state.dataConn.close();
+      if (state.mediaConn) state.mediaConn.close();
+      if (state.peer) state.peer.destroy();
+
+      if (state.localStream) {
+        state.localStream.getTracks().forEach(t => t.stop());
+        state.localStream = null;
+        state.audioTrack = null;
+      }
+
+      if (state.wakeLock) {
+        state.wakeLock.release().catch(() => {});
+        state.wakeLock = null;
+      }
+
+      state.peer = null;
+      state.dataConn = null;
+      state.mediaConn = null;
+      state.remoteStream = null;
+      state.isConnected = false;
+      state.isReceiving = false;
+      state.loopbackEnabled = false;
+      el.btnLoopback.textContent = 'ECO: OFF';
+      el.btnLoopback.classList.remove('text-[#FF4D00]', 'border-[#FF4D00]/50');
+      state.roomCode = '';
+
+      const url = new URL(window.location.href);
+      url.searchParams.delete('room');
+      window.history.replaceState({}, '', url);
+
+      renderState('SETUP');
+    }
+
+    // ==========================================
+    // 6. CONTROL TÁCTIL PUSH-TO-TALK (PTT)
+    // ==========================================
+    function beginTx(e) {
+      if (e) e.preventDefault();
+      // Permitir transmitir si está conectado O si el modo ECO de prueba está activo
+      const canTransmit = state.isConnected || state.loopbackEnabled;
+      if (!canTransmit || state.isReceiving || state.isTransmitting || !state.audioTrack) return;
+
+      SoundEngine.unlock();
+      // Asegurar que el audio remoto esté activo en iOS al tocar PTT
+      if (el.remoteAudio.srcObject && el.remoteAudio.paused) {
+        el.remoteAudio.play().catch(() => {});
+      }
+
+      state.isTransmitting = true;
+      state.audioTrack.enabled = true;
+
+      if (state.dataConn && state.dataConn.open) {
+        state.dataConn.send({ type: 'ptt', speaking: true });
+      }
+
+      if (navigator.vibrate) navigator.vibrate(35);
+      SoundEngine.txStart();
+      renderState('TX');
+    }
+
+    function endTx(e) {
+      if (e) e.preventDefault();
+      if (!state.isTransmitting) return;
+      forceReleaseTx();
+      SoundEngine.rogerBeep();
+      if (navigator.vibrate) navigator.vibrate([20, 25, 20]);
+
+      if (state.isConnected) {
+        renderState(state.isReceiving ? 'RX' : 'READY');
+      } else {
+        renderState('WAITING');
+      }
+    }
+
+    function forceReleaseTx() {
+      state.isTransmitting = false;
+      if (state.audioTrack) {
+        state.audioTrack.enabled = false;
+      }
+      if (state.dataConn && state.dataConn.open) {
+        state.dataConn.send({ type: 'ptt', speaking: false });
+      }
+    }
+
+    // ==========================================
+    // 7. EVENTOS DE INTERFAZ Y DIAGNÓSTICO
+    // ==========================================
+    el.btnCreate.addEventListener('click', () => {
+      startSession(createCode(), true);
+    });
+
+    el.btnJoin.addEventListener('click', () => {
+      const code = el.inputCode.value.trim().toUpperCase();
+      if (code.length !== 4) {
+        notify('Ingresa un código válido de 4 caracteres');
+        el.inputCode.focus();
+        return;
+      }
+      startSession(code, false);
+    });
+
+    el.inputCode.addEventListener('keyup', (e) => {
+      if (e.key === 'Enter') el.btnJoin.click();
+    });
+
+    // Botón de diagnóstico rápido desde la pantalla inicial
+    el.btnTestHw.addEventListener('click', async () => {
+      try {
+        el.btnTestHw.textContent = 'Probando...';
+        await initMicrophoneAndAudio();
+        SoundEngine.connected();
+        notify('Micrófono y altavoz listos en este dispositivo', 3500);
+        el.btnTestHw.textContent = 'Audio OK ✓';
+        el.btnTestHw.classList.add('text-emerald-400', 'border-emerald-800');
+      } catch (err) {
+        notify(err.message, 4500);
+        el.btnTestHw.textContent = 'Error Mic ✕';
+        el.btnTestHw.classList.add('text-red-400');
+      }
+    });
+
+    // Botón ECO para escuchar tu propia voz localmente y verificar el micrófono en la sala
+    el.btnLoopback.addEventListener('click', () => {
+      state.loopbackEnabled = !state.loopbackEnabled;
+      if (state.loopbackGain && state.audioCtx) {
+        state.loopbackGain.gain.setTargetAtTime(
+          state.loopbackEnabled ? 0.85 : 0.0,
+          state.audioCtx.currentTime,
+          0.02
+        );
+      }
+      el.btnLoopback.textContent = state.loopbackEnabled ? 'ECO: ON' : 'ECO: OFF';
+      el.btnLoopback.classList.toggle('text-[#FF4D00]', state.loopbackEnabled);
+      el.btnLoopback.classList.toggle('border-[#FF4D00]/50', state.loopbackEnabled);
+
+      if (!state.isConnected) {
+        renderState('WAITING');
+      }
+      notify(
+        state.loopbackEnabled
+          ? 'Eco activado: mantén PTT para escucharte a ti mismo'
+          : 'Eco desactivado',
+        3000
+      );
+    });
+
+    el.btnLeave.addEventListener('click', leaveSession);
+
+    el.btnPtt.addEventListener('pointerdown', beginTx);
+    el.btnPtt.addEventListener('pointerup', endTx);
+    el.btnPtt.addEventListener('pointerleave', endTx);
+    el.btnPtt.addEventListener('pointercancel', endTx);
+    el.btnPtt.addEventListener('contextmenu', (e) => e.preventDefault());
+
+    el.btnToggleSfx.addEventListener('click', () => {
+      state.sfxEnabled = !state.sfxEnabled;
+      el.iconSfxOn.classList.toggle('hidden', !state.sfxEnabled);
+      el.iconSfxOff.classList.toggle('hidden', state.sfxEnabled);
+      notify(state.sfxEnabled ? 'Tonos activados' : 'Tonos silenciados', 1800);
+    });
+
+    el.btnMuteRx.addEventListener('click', () => {
+      state.rxMuted = !state.rxMuted;
+      el.remoteAudio.muted = state.rxMuted;
+      el.btnMuteRx.textContent = state.rxMuted ? 'RX: MUTE' : 'RX: ON';
+      el.btnMuteRx.classList.toggle('text-red-400', state.rxMuted);
+    });
+
+    function copyTextFallback(text, successMsg) {
+      const temp = document.createElement('input');
+      temp.value = text;
+      document.body.appendChild(temp);
+      temp.select();
+      temp.setSelectionRange(0, 99999);
+      try {
+        document.execCommand('copy');
+        notify(successMsg);
+      } catch (e) {
+        notify(`Código: ${state.roomCode}`);
+      }
+      document.body.removeChild(temp);
+    }
+
+    el.btnCopy.addEventListener('click', () => {
+      if (state.roomCode) copyTextFallback(state.roomCode, `Código ${state.roomCode} copiado`);
+    });
+
+    el.btnShare.addEventListener('click', async () => {
+      if (!state.roomCode) return;
+      const shareUrl = getShareUrl();
+      if (navigator.share) {
+        try {
+          await navigator.share({
+            title: `Canal PTT ${state.roomCode}`,
+            text: `Conéctate a mi Walkie-Talkie (Canal ${state.roomCode}):`,
+            url: shareUrl
+          });
+        } catch (e) {
+          copyTextFallback(shareUrl, 'Enlace directo copiado');
+        }
+      } else {
+        copyTextFallback(shareUrl, 'Enlace directo copiado');
+      }
+    });
+
+    window.addEventListener('DOMContentLoaded', () => {
+      const params = new URLSearchParams(window.location.search);
+      const roomParam = params.get('room');
+      if (roomParam && roomParam.trim().length === 4) {
+        el.inputCode.value = roomParam.trim().toUpperCase();
+        notify(`Canal ${el.inputCode.value} listo — Pulsa Conectar`, 4500);
+      }
+      renderState('SETUP');
+    });
+  </script>
+</body>
+</html>
