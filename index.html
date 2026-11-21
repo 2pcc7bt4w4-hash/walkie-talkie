@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>PTT // 01 — Walkie-Talkie WebRTC</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
     :root {
@@ -43,7 +42,7 @@
       border: 1px solid var(--border);
     }
 
-    /* Botón PTT Arquitectónico */
+    /* Botón PTT táctil anti-selección para iOS Safari y Android Chrome */
     .ptt-core {
       touch-action: none;
       user-select: none;
@@ -51,7 +50,7 @@
       -webkit-touch-callout: none;
       background-color: #141418;
       border: 1px solid #2E2E34;
-      box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.75);
+      box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.8);
       transition: transform 0.14s cubic-bezier(0.22, 1, 0.36, 1),
                   background-color 0.2s ease,
                   border-color 0.2s ease,
@@ -61,15 +60,15 @@
     .ptt-core:active:not(:disabled),
     .ptt-core.state-tx {
       transform: scale(0.95);
-      background-color: rgba(255, 77, 0, 0.14);
+      background-color: rgba(255, 77, 0, 0.15);
       border-color: var(--accent-tx);
-      box-shadow: 0 0 0 1px var(--accent-tx), 0 0 50px -5px rgba(255, 77, 0, 0.38);
+      box-shadow: 0 0 0 1px var(--accent-tx), 0 0 50px -5px rgba(255, 77, 0, 0.4);
     }
 
     .ptt-core.state-rx {
-      background-color: rgba(16, 185, 129, 0.10);
+      background-color: rgba(16, 185, 129, 0.12);
       border-color: var(--accent-rx);
-      box-shadow: 0 0 0 1px var(--accent-rx), 0 0 45px -5px rgba(16, 185, 129, 0.28);
+      box-shadow: 0 0 0 1px var(--accent-rx), 0 0 45px -5px rgba(16, 185, 129, 0.3);
     }
 
     .ptt-core:disabled {
@@ -83,12 +82,12 @@
     }
 
     .ptt-ring.ring-tx {
-      border-color: rgba(255, 77, 0, 0.5);
+      border-color: rgba(255, 77, 0, 0.55);
       transform: scale(1.07);
     }
 
     .ptt-ring.ring-rx {
-      border-color: rgba(16, 185, 129, 0.5);
+      border-color: rgba(16, 185, 129, 0.55);
       transform: scale(1.05);
     }
 
@@ -104,11 +103,11 @@
 </head>
 <body class="flex flex-col justify-between max-w-md mx-auto px-5 py-4">
 
-  <!-- BARRA SUPERIOR MINIMALISTA -->
-  <header class="flex items-center justify-between h-11">
+  <!-- BARRA SUPERIOR -->
+  <header class="flex items-center justify-between h-11 shrink-0">
     <div class="flex items-center gap-2.5">
       <span id="status-dot" class="w-2 h-2 rounded-full bg-zinc-600 transition-colors duration-300"></span>
-      <span class="font-mono-tech text-xs font-semibold tracking-widest uppercase text-zinc-400">
+      <span class="font-mono-tech text-xs font-semibold tracking-widest uppercase text-zinc-300">
         PTT // 01
       </span>
       <span id="wakelock-tag" class="hidden font-mono-tech text-[10px] px-1.5 py-0.5 rounded bg-zinc-900 text-zinc-400 border border-zinc-800">
@@ -117,8 +116,8 @@
     </div>
 
     <div class="flex items-center gap-1.5">
-      <!-- Toggle Tonos de Interfaz -->
-      <button id="btn-toggle-sfx" class="h-8 px-2.5 rounded-lg minimal-card text-zinc-300 hover:text-white hover:border-zinc-600 transition flex items-center gap-1.5" title="Activar/Silenciar tonos">
+      <!-- Toggle Tonos -->
+      <button id="btn-toggle-sfx" class="h-8 px-2.5 rounded-lg minimal-card text-zinc-300 hover:text-white hover:border-zinc-600 transition flex items-center gap-1.5" title="Activar o silenciar tonos">
         <svg id="icon-sfx-on" xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 text-zinc-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
           <path stroke-linecap="round" stroke-linejoin="round" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
         </svg>
@@ -128,24 +127,31 @@
         <span class="font-mono-tech text-[10px] uppercase">TONOS</span>
       </button>
 
-      <!-- Botón Salir del Canal -->
+      <!-- Salir -->
       <button id="btn-leave" class="hidden h-8 px-2.5 rounded-lg minimal-card text-zinc-400 hover:text-red-400 hover:border-red-900/60 transition font-mono-tech text-[10px] uppercase">
         SALIR
       </button>
     </div>
   </header>
 
-  <!-- BANNER DE DIAGNÓSTICO / AVISOS -->
-  <div id="banner-msg" class="hidden my-1 px-3 py-2 rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-200 font-mono-tech text-[11px] text-center transition-all"></div>
+  <!-- CINTA DE DIAGNÓSTICO EN VIVO -->
+  <div id="diag-pill" class="my-1.5 px-3 py-2 rounded-xl bg-zinc-900/90 border border-zinc-800/90 flex items-center justify-between gap-2 shrink-0">
+    <span id="diag-text" class="font-mono-tech text-[11px] text-zinc-400 truncate">
+      Listo · Firebase RTDB conectado
+    </span>
+    <span id="diag-ice" class="font-mono-tech text-[10px] text-zinc-500 shrink-0 uppercase">
+      IDLE
+    </span>
+  </div>
 
   <!-- VISTA 1: CONFIGURACIÓN DE CANAL -->
   <main id="view-setup" class="flex-1 flex flex-col justify-center gap-5 my-auto">
     <div class="space-y-1.5">
       <h1 class="text-2xl font-semibold tracking-tight text-zinc-100">
-        Radio directo P2P
+        Radio directo WebRTC
       </h1>
       <p class="text-sm text-zinc-400 leading-relaxed">
-        Voz instantánea en iPhone y Android sobre Wi-Fi o datos 4G/5G.
+        Voz instantánea sin instalar apps en iPhone y Android.
       </p>
     </div>
 
@@ -156,7 +162,7 @@
           01 / Nueva frecuencia
         </label>
         <button id="btn-create" class="w-full h-12 rounded-xl bg-zinc-100 hover:bg-white active:scale-[0.99] text-zinc-950 font-semibold text-sm transition flex items-center justify-center gap-2">
-          <span>Crear canal</span>
+          <span>CREAR CANAL</span>
           <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
             <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
           </svg>
@@ -168,45 +174,45 @@
       <!-- 02 Unirse a canal -->
       <div class="space-y-2">
         <label for="input-code" class="block font-mono-tech text-[11px] uppercase tracking-wider text-zinc-500">
-          02 / Conectar a frecuencia
+          02 / Unirse a frecuencia
         </label>
         <div class="flex gap-2.5">
           <input
             id="input-code"
             type="text"
             maxlength="4"
-            placeholder="A7K2"
+            placeholder="7K2P"
             autocomplete="off"
             autocorrect="off"
             autocapitalize="characters"
             spellcheck="false"
             class="w-1/2 h-12 rounded-xl bg-zinc-950 border border-zinc-800 focus:border-zinc-500 focus:outline-none text-center font-mono-tech text-lg font-semibold tracking-[0.25em] uppercase text-white placeholder-zinc-700 transition"
           />
-          <button id="btn-join" class="w-1/2 h-12 rounded-xl bg-zinc-800 hover:bg-zinc-700 active:scale-[0.99] text-zinc-100 font-medium text-sm border border-zinc-700/70 transition">
-            Conectar
+          <button id="btn-join" class="w-1/2 h-12 rounded-xl bg-zinc-800 hover:bg-zinc-700 active:scale-[0.99] text-zinc-100 font-semibold text-sm border border-zinc-700/70 transition">
+            UNIRSE
           </button>
         </div>
       </div>
 
       <div class="border-t border-zinc-800/80"></div>
 
-      <!-- 03 Verificación rápida de hardware (útil en iOS) -->
+      <!-- 03 Autotest de Micrófono y Altavoz -->
       <div class="flex items-center justify-between">
         <span class="font-mono-tech text-[10px] uppercase tracking-wider text-zinc-500">
-          DIAGNÓSTICO HARDWARE
+          VERIFICAR HARDWARE
         </span>
         <button id="btn-test-hw" class="px-3 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 font-mono-tech text-[11px] text-zinc-300 transition active:scale-95">
-          Probar Audio / Mic
+          Probar Mic / Audio
         </button>
       </div>
     </div>
   </main>
 
   <!-- VISTA 2: INTERFAZ ACTIVA DE WALKIE-TALKIE -->
-  <main id="view-radio" class="hidden flex-1 flex-col justify-between py-2">
+  <main id="view-radio" class="hidden flex-1 flex-col justify-between py-1">
 
-    <!-- Tarjeta de Telemetría y Código -->
-    <section class="minimal-card rounded-2xl p-4 flex items-center justify-between">
+    <!-- Tarjeta de Código y Visualizador -->
+    <section class="minimal-card rounded-2xl p-4 flex items-center justify-between shrink-0">
       <div>
         <span class="block font-mono-tech text-[10px] uppercase tracking-widest text-zinc-500">
           CANAL ACTIVO
@@ -220,7 +226,7 @@
               <path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
             </svg>
           </button>
-          <button id="btn-share" class="p-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-400 hover:text-zinc-200 transition active:scale-95" title="Compartir enlace directo">
+          <button id="btn-share" class="p-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-400 hover:text-zinc-200 transition active:scale-95" title="Compartir enlace">
             <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
               <path stroke-linecap="round" stroke-linejoin="round" d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8m-4-6l-4-4m0 0L8 6m4-4v12" />
             </svg>
@@ -228,17 +234,17 @@
         </div>
       </div>
 
-      <!-- Visualizador de Onda (VU Meter) -->
+      <!-- Visualizador de Onda -->
       <div class="flex flex-col items-end gap-1.5">
         <span id="telemetry-badge" class="font-mono-tech text-[10px] uppercase tracking-wider text-zinc-400">
           STANDBY
         </span>
-        <canvas id="wave-canvas" class="w-24 h-7 rounded bg-zinc-950/80 border border-zinc-800/80"></canvas>
+        <canvas id="wave-canvas" class="w-24 h-7 rounded bg-zinc-950/90 border border-zinc-800/80"></canvas>
       </div>
     </section>
 
     <!-- BOTÓN CENTRAL TÁCTIL (PTT) -->
-    <section class="flex-1 flex flex-col items-center justify-center my-3">
+    <section class="flex-1 flex flex-col items-center justify-center my-2">
       <div class="relative flex items-center justify-center">
         <div id="ptt-outer-ring" class="ptt-ring absolute w-60 h-60 sm:w-64 sm:h-64 rounded-full pointer-events-none"></div>
 
@@ -249,24 +255,24 @@
             INICIANDO...
           </span>
           <span id="ptt-sub-text" class="text-[11px] text-zinc-500 mt-1.5 pointer-events-none">
-            Conectando señalización
+            Preparando canal
           </span>
         </button>
       </div>
     </section>
 
-    <!-- Barra inferior de estado P2P y controles -->
-    <section class="minimal-card rounded-xl px-4 py-3 space-y-2">
-      <div class="flex items-center justify-between">
+    <!-- Barra inferior de estado P2P y monitor local -->
+    <section class="minimal-card rounded-xl px-4 py-3 shrink-0">
+      <div class="flex items-center justify-between gap-2">
         <div class="flex items-center gap-2 overflow-hidden">
-          <span class="font-mono-tech text-[10px] text-zinc-500 shrink-0">ESTADO:</span>
-          <span id="link-status-text" class="font-mono-tech text-[11px] text-zinc-300 truncate">SERVIDOR LISTO</span>
+          <span class="font-mono-tech text-[10px] text-zinc-500 shrink-0">ENLACE:</span>
+          <span id="link-status-text" class="font-mono-tech text-[11px] text-zinc-300 truncate">ESPERANDO</span>
         </div>
-        <div class="flex items-center gap-3 shrink-0">
-          <button id="btn-loopback" class="font-mono-tech text-[10px] px-2 py-0.5 rounded bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white transition" title="Escuchar tu propio micrófono localmente">
+        <div class="flex items-center gap-2 shrink-0">
+          <button id="btn-loopback" class="font-mono-tech text-[10px] px-2 py-1 rounded bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white transition" title="Escuchar tu propio micrófono localmente">
             ECO: OFF
           </button>
-          <button id="btn-mute-rx" class="font-mono-tech text-[11px] text-zinc-300 hover:text-white transition">
+          <button id="btn-mute-rx" class="font-mono-tech text-[10px] px-2 py-1 rounded bg-zinc-900 border border-zinc-800 text-zinc-300 hover:text-white transition">
             RX: ON
           </button>
         </div>
@@ -275,9 +281,9 @@
   </main>
 
   <!-- PIE DE PÁGINA -->
-  <footer class="h-6 flex items-center justify-center">
+  <footer class="h-6 flex items-center justify-center shrink-0">
     <span class="font-mono-tech text-[10px] tracking-wider text-zinc-600">
-      WEBRTC ICE/TURN // IOS &amp; ANDROID READY
+      WEBRTC NATIVE // FIREBASE SIGNALING
     </span>
   </footer>
 
@@ -286,63 +292,61 @@
 
   <script>
     /**
-     * PTT // 01 — Walkie-Talkie WebRTC P2P (iOS Safari + Android Chrome)
-     * Incluye servidores STUN + TURN para redes celulares 4G/5G, desbloqueo de AudioContext
-     * en gestos táctiles, diagnóstico de pasos y prueba local de micrófono (eco/loopback).
+     * PTT // 01 — Walkie-Talkie WebRTC Nativo + Firebase Realtime Database REST API
+     * - Señalización atómica Non-Trickle ICE vía fetch REST (sin PeerJS ni SDK pesados).
+     * - Control de turno en tiempo real (EventSource SSE + polling de respaldo).
+     * - Desbloqueo estricto de AudioContext y <audio> para iOS Safari y Android Chrome.
      */
 
-    const PEER_PREFIX = 'wt-chan-';
+    const DB_URL = 'https://ealkie-9e7ab-default-rtdb.firebaseio.com';
 
-    // Configuración ICE completa con STUN + TURN público para atravesar NAT de redes móviles 4G/5G
-    const PEER_OPTIONS = {
-      debug: 1,
-      config: {
-        iceServers: [
-          { urls: 'stun:stun.l.google.com:19302' },
-          { urls: 'stun:stun1.l.google.com:19302' },
-          { urls: 'stun:stun2.l.google.com:19302' },
-          {
-            urls: 'turn:openrelay.metered.ca:80',
-            username: 'openrelayproject',
-            credential: 'openrelayproject'
-          },
-          {
-            urls: 'turn:openrelay.metered.ca:443',
-            username: 'openrelayproject',
-            credential: 'openrelayproject'
-          },
-          {
-            urls: 'turn:openrelay.metered.ca:443?transport=tcp',
-            username: 'openrelayproject',
-            credential: 'openrelayproject'
-          }
-        ],
-        iceCandidatePoolSize: 4
-      }
+    // Configuración ICE con STUN de Google + TURN de respaldo para redes celulares 4G/5G
+    const RTC_CONFIG = {
+      iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' },
+        { urls: 'stun:stun2.l.google.com:19302' },
+        {
+          urls: 'turn:openrelay.metered.ca:80',
+          username: 'openrelayproject',
+          credential: 'openrelayproject'
+        },
+        {
+          urls: 'turn:openrelay.metered.ca:443',
+          username: 'openrelayproject',
+          credential: 'openrelayproject'
+        },
+        {
+          urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+          username: 'openrelayproject',
+          credential: 'openrelayproject'
+        }
+      ],
+      iceCandidatePoolSize: 4
     };
 
     const state = {
-      peer: null,
-      mediaConn: null,
-      dataConn: null,
+      pc: null,
       localStream: null,
       remoteStream: null,
-      audioTrack: null,
+      localAudioTrack: null,
       audioCtx: null,
       localAnalyser: null,
       remoteAnalyser: null,
       loopbackGain: null,
       wakeLock: null,
-      heartbeatTimer: null,
+      sseSource: null,
+      answerPollTimer: null,
+      talkingPollTimer: null,
+      animFrameId: null,
       roomCode: '',
-      isHost: false,
+      myRole: '', // 'host' | 'guest'
       isConnected: false,
       isTransmitting: false,
       isReceiving: false,
       sfxEnabled: true,
       rxMuted: false,
-      loopbackEnabled: false,
-      animFrameId: null
+      loopbackEnabled: false
     };
 
     const el = {
@@ -352,7 +356,9 @@
       iconSfxOn: document.getElementById('icon-sfx-on'),
       iconSfxOff: document.getElementById('icon-sfx-off'),
       btnLeave: document.getElementById('btn-leave'),
-      bannerMsg: document.getElementById('banner-msg'),
+      diagPill: document.getElementById('diag-pill'),
+      diagText: document.getElementById('diag-text'),
+      diagIce: document.getElementById('diag-ice'),
       viewSetup: document.getElementById('view-setup'),
       viewRadio: document.getElementById('view-radio'),
       btnCreate: document.getElementById('btn-create'),
@@ -387,7 +393,7 @@
         if (state.audioCtx.state === 'suspended') {
           state.audioCtx.resume().catch(() => {});
         }
-        // Reproducir un pulso silencioso de 1 sample para desbloquear Safari en iOS
+        // Pulso silencioso de 1 sample dentro del evento táctil para desbloquear Safari en iOS
         try {
           const buffer = state.audioCtx.createBuffer(1, 1, 22050);
           const source = state.audioCtx.createBufferSource();
@@ -438,6 +444,25 @@
         } catch (e) {}
       },
 
+      busyBuzz() {
+        if (!state.sfxEnabled) return;
+        try {
+          this.unlock();
+          const ctx = state.audioCtx;
+          const now = ctx.currentTime;
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'sawtooth';
+          osc.frequency.setValueAtTime(160, now);
+          gain.gain.setValueAtTime(0.08, now);
+          gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.14);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start(now);
+          osc.stop(now + 0.15);
+        } catch (e) {}
+      },
+
       connected() {
         if (!state.sfxEnabled) return;
         try {
@@ -461,24 +486,32 @@
     };
 
     // ==========================================
-    // 2. UTILIDADES DE UI, CÓDIGOS Y WAKE LOCK
+    // 2. DIAGNÓSTICO EN VIVO Y UTILIDADES
     // ==========================================
-    function notify(text, duration = 3500) {
-      el.bannerMsg.textContent = text;
-      el.bannerMsg.classList.remove('hidden');
-      clearTimeout(el.bannerMsg._timeout);
-      el.bannerMsg._timeout = setTimeout(() => {
-        el.bannerMsg.classList.add('hidden');
-      }, duration);
+    function setDiagnostic(message, type = 'normal') {
+      el.diagText.textContent = message;
+      el.diagPill.classList.remove('border-red-800/80', 'bg-red-950/40', 'border-emerald-800/70');
+      el.diagText.classList.remove('text-red-300', 'text-emerald-300', 'text-zinc-300', 'text-zinc-400');
+
+      if (type === 'error') {
+        el.diagPill.classList.add('border-red-800/80', 'bg-red-950/40');
+        el.diagText.classList.add('text-red-300');
+      } else if (type === 'ok') {
+        el.diagPill.classList.add('border-emerald-800/70');
+        el.diagText.classList.add('text-emerald-300');
+      } else {
+        el.diagText.classList.add('text-zinc-300');
+      }
     }
 
-    function createCode() {
-      const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-      let result = '';
+    function generateRoomCode() {
+      // Excluye caracteres ambiguos: 0, O, 1, I
+      const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+      let code = '';
       for (let i = 0; i < 4; i++) {
-        result += alphabet.charAt(Math.floor(Math.random() * alphabet.length));
+        code += chars.charAt(Math.floor(Math.random() * chars.length));
       }
-      return result;
+      return code;
     }
 
     function getShareUrl() {
@@ -504,7 +537,7 @@
         if (state.audioCtx && state.audioCtx.state === 'suspended') {
           state.audioCtx.resume().catch(() => {});
         }
-        if (state.peer && !state.peer.destroyed) {
+        if (state.roomCode) {
           activateWakeLock();
         }
       }
@@ -522,6 +555,7 @@
         el.viewRadio.classList.add('hidden');
         el.viewRadio.classList.remove('flex');
         el.btnLeave.classList.add('hidden');
+        el.diagIce.textContent = 'IDLE';
         return;
       }
 
@@ -532,27 +566,26 @@
       el.displayCode.textContent = state.roomCode;
 
       switch (uiState) {
-        case 'SIGNALING':
-          el.statusDot.classList.add('bg-amber-400', 'led-pulse');
-          el.telemetryBadge.textContent = 'CONECTANDO';
-          el.telemetryBadge.className = 'font-mono-tech text-[10px] uppercase tracking-wider text-amber-400';
-          el.pttIndicator.classList.add('bg-amber-400', 'led-pulse');
-          el.btnPtt.disabled = true;
-          el.pttMainText.textContent = 'CONECTANDO...';
-          el.pttSubText.textContent = 'Servidor de señalización';
-          el.linkStatusText.textContent = 'REGISTRANDO CANAL...';
-          break;
-
         case 'WAITING':
           el.statusDot.classList.add('bg-amber-400', 'led-pulse');
           el.telemetryBadge.textContent = 'ESPERANDO';
           el.telemetryBadge.className = 'font-mono-tech text-[10px] uppercase tracking-wider text-amber-400';
           el.pttIndicator.classList.add('bg-amber-400', 'led-pulse');
-          // Permitimos pulsar PTT incluso esperando si ECO está activo para probar el micrófono
           el.btnPtt.disabled = !state.loopbackEnabled;
           el.pttMainText.textContent = state.loopbackEnabled ? 'PRUEBA DE MIC' : 'ESPERANDO PAR';
           el.pttSubText.textContent = state.loopbackEnabled ? 'Mantén para probar voz' : 'Comparte el código o enlace';
-          el.linkStatusText.textContent = 'SERVIDOR LISTO • ESPERANDO';
+          el.linkStatusText.textContent = 'SALA PUBLICADA EN FIREBASE';
+          break;
+
+        case 'CONNECTING':
+          el.statusDot.classList.add('bg-amber-400', 'led-pulse');
+          el.telemetryBadge.textContent = 'ENLAZANDO';
+          el.telemetryBadge.className = 'font-mono-tech text-[10px] uppercase tracking-wider text-amber-400';
+          el.pttIndicator.classList.add('bg-amber-400', 'led-pulse');
+          el.btnPtt.disabled = true;
+          el.pttMainText.textContent = 'ENLAZANDO P2P...';
+          el.pttSubText.textContent = 'Negociando audio WebRTC';
+          el.linkStatusText.textContent = 'INTERCAMBIANDO ICE/SDP';
           break;
 
         case 'READY':
@@ -563,7 +596,7 @@
           el.btnPtt.disabled = false;
           el.pttMainText.textContent = 'MANTÉN PARA HABLAR';
           el.pttSubText.textContent = 'Canal libre';
-          el.linkStatusText.textContent = 'EN LÍNEA • P2P ACTIVO';
+          el.linkStatusText.textContent = 'CONECTADO · AUDIO ACTIVO';
           break;
 
         case 'TX':
@@ -576,7 +609,7 @@
           el.pttIndicator.classList.add('bg-[#FF4D00]', 'led-pulse');
           el.pttMainText.textContent = 'TRANSMITIENDO';
           el.pttSubText.textContent = 'Suelta para terminar';
-          el.linkStatusText.textContent = state.isConnected ? 'ENVIANDO AUDIO P2P' : 'PROBANDO MICRÓFONO LOCAL';
+          el.linkStatusText.textContent = state.isConnected ? 'ENVIANDO VOZ EN VIVO' : 'MONITOR LOCAL (ECO)';
           break;
 
         case 'RX':
@@ -589,7 +622,7 @@
           el.pttIndicator.classList.add('bg-[#10B981]', 'led-pulse');
           el.pttMainText.textContent = 'RECIBIENDO';
           el.pttSubText.textContent = 'Canal ocupado';
-          el.linkStatusText.textContent = 'RECIBIENDO AUDIO P2P';
+          el.linkStatusText.textContent = 'RECIBIENDO VOZ EN VIVO';
           break;
       }
     }
@@ -651,21 +684,20 @@
     }
 
     // ==========================================
-    // 4. CAPTURA DE MICRÓFONO Y COMPATIBILIDAD iOS
+    // 4. CAPTURA DE MICRÓFONO Y DESBLOQUEO iOS
     // ==========================================
-    async function initMicrophoneAndAudio() {
-      // 1. Desbloquear AudioContext dentro del evento táctil del usuario
+    async function acquireMicrophone() {
+      // 1. Desbloquear AudioContext y <audio> inmediatamente en el clic del usuario
       SoundEngine.unlock();
-
-      // 2. Desbloquear etiqueta <audio> en iOS Safari
       try {
         el.remoteAudio.muted = false;
         el.remoteAudio.volume = 1.0;
         await el.remoteAudio.play().catch(() => {});
       } catch (e) {}
 
-      // 3. Solicitar micrófono (nunca al cargar la página, solo al tocar botón)
+      // 2. Pedir acceso al micrófono
       if (!state.localStream) {
+        setDiagnostic('1. Solicitando permiso de micrófono...');
         try {
           state.localStream = await navigator.mediaDevices.getUserMedia({
             audio: {
@@ -675,10 +707,10 @@
             },
             video: false
           });
-          state.audioTrack = state.localStream.getAudioTracks()[0];
-          state.audioTrack.enabled = false; // Silenciado hasta mantener PTT
+          state.localAudioTrack = state.localStream.getAudioTracks()[0];
+          state.localAudioTrack.enabled = false; // Silenciado hasta mantener PTT
 
-          // Configurar analizador local (VU meter) y ruta opcional de eco/prueba
+          // Configurar analizador local + monitor opcional ECO
           const src = state.audioCtx.createMediaStreamSource(state.localStream);
           state.localAnalyser = state.audioCtx.createAnalyser();
           state.localAnalyser.fftSize = 64;
@@ -690,7 +722,7 @@
           src.connect(state.loopbackGain);
           state.loopbackGain.connect(state.audioCtx.destination);
         } catch (err) {
-          throw new Error('Permiso de micrófono denegado. Revisa los ajustes de Safari/Chrome.');
+          throw new Error('Permiso de micrófono denegado. Actívalo en los ajustes de Safari/Chrome.');
         }
       }
 
@@ -698,145 +730,75 @@
     }
 
     // ==========================================
-    // 5. CONEXIÓN PEERJS + WEBRTC BIDIRECCIONAL
+    // 5. FIREBASE REST API HELPERS
     // ==========================================
-    async function startSession(code, isHost, retryCount = 0) {
-      try {
-        await initMicrophoneAndAudio();
-      } catch (err) {
-        notify(err.message, 5000);
-        return;
+    async function fbRequest(path, method = 'GET', body = null) {
+      const opts = {
+        method,
+        headers: { 'Content-Type': 'application/json' }
+      };
+      if (body !== null) {
+        opts.body = JSON.stringify(body);
       }
+      const res = await fetch(`${DB_URL}${path}`, opts);
+      if (!res.ok) {
+        if (res.status === 401 || res.status === 403) {
+          throw new Error('Firebase bloqueó el acceso (revisa que Realtime Database esté en modo prueba).');
+        }
+        throw new Error(`Error de red Firebase (${res.status})`);
+      }
+      return res.json();
+    }
 
-      state.roomCode = code.toUpperCase();
-      state.isHost = isHost;
+    // ==========================================
+    // 6. WEBRTC NATIVO CON NON-TRICKLE ICE
+    // ==========================================
+    function waitForIceGathering(pc, timeoutMs = 1500) {
+      return new Promise((resolve) => {
+        if (pc.iceGatheringState === 'complete') {
+          resolve();
+          return;
+        }
+        const timer = setTimeout(() => {
+          pc.removeEventListener('icegatheringstatechange', onStateChange);
+          resolve();
+        }, timeoutMs);
 
-      // Actualizar URL con ?room=XXXX
-      const url = new URL(window.location.href);
-      url.searchParams.set('room', state.roomCode);
-      window.history.replaceState({}, '', url);
-
-      const peerId = isHost ? `${PEER_PREFIX}${state.roomCode}` : undefined;
-      state.peer = new Peer(peerId, PEER_OPTIONS);
-
-      renderState('SIGNALING');
-      setupWaveformVisualizer();
-
-      state.peer.on('open', () => {
-        if (isHost) {
-          renderState('WAITING');
-          notify(`Canal ${state.roomCode} creado. Esperando dispositivo...`);
-        } else {
-          el.linkStatusText.textContent = `CONECTANDO A ${state.roomCode}...`;
-          const targetId = `${PEER_PREFIX}${state.roomCode}`;
-
-          // Abrir canal de datos para control PTT (floor lock + heartbeat)
-          const conn = state.peer.connect(targetId, { reliable: true });
-          bindDataChannel(conn);
-
-          // Iniciar llamada de audio WebRTC bidireccional
-          const call = state.peer.call(targetId, state.localStream);
-          if (call) {
-            bindMediaCall(call);
+        function onStateChange() {
+          if (pc.iceGatheringState === 'complete') {
+            clearTimeout(timer);
+            pc.removeEventListener('icegatheringstatechange', onStateChange);
+            resolve();
           }
         }
-      });
-
-      // El anfitrión recibe la conexión de datos del invitado
-      state.peer.on('connection', (conn) => {
-        if (state.dataConn && state.dataConn.open) {
-          conn.close();
-          return;
-        }
-        bindDataChannel(conn);
-      });
-
-      // El anfitrión recibe la llamada de audio y responde con su stream
-      state.peer.on('call', (call) => {
-        call.answer(state.localStream);
-        bindMediaCall(call);
-      });
-
-      state.peer.on('error', (err) => {
-        if (err.type === 'unavailable-id' && isHost && retryCount < 3) {
-          // Si el código aleatorio chocó, generar otro automáticamente
-          if (state.peer) state.peer.destroy();
-          const newCode = createCode();
-          startSession(newCode, true, retryCount + 1);
-          return;
-        }
-
-        if (err.type === 'peer-unavailable') {
-          notify(`No se encontró el canal ${state.roomCode}. Verifica el código.`, 4500);
-          leaveSession();
-        } else if (err.type === 'network' || err.type === 'server-error') {
-          notify('Error de red con el servidor de señalización. Reintentando...', 3500);
-        } else {
-          notify(`Aviso de conexión: ${err.type}`, 3500);
-        }
-      });
-
-      state.peer.on('disconnected', () => {
-        if (state.peer && !state.peer.destroyed) {
-          el.linkStatusText.textContent = 'RECONECTANDO SEÑAL...';
-          state.peer.reconnect();
-        }
+        pc.addEventListener('icegatheringstatechange', onStateChange);
       });
     }
 
-    function bindDataChannel(conn) {
-      state.dataConn = conn;
+    function setupPeerConnection() {
+      if (state.pc) {
+        state.pc.close();
+      }
+      const pc = new RTCPeerConnection(RTC_CONFIG);
+      state.pc = pc;
 
-      conn.on('open', () => {
-        state.isConnected = true;
-        SoundEngine.connected();
-        renderState('READY');
-        notify('Dispositivo conectado — Canal listo');
-
-        // Keep-alive / heartbeat cada 5s para evitar cortes en redes móviles
-        clearInterval(state.heartbeatTimer);
-        state.heartbeatTimer = setInterval(() => {
-          if (state.dataConn && state.dataConn.open) {
-            state.dataConn.send({ type: 'ping', ts: Date.now() });
-          }
-        }, 5000);
+      // Añadir pista de audio local (silenciada por defecto)
+      state.localStream.getTracks().forEach((track) => {
+        pc.addTrack(track, state.localStream);
       });
 
-      conn.on('data', (msg) => {
-        if (!msg || typeof msg !== 'object') return;
-
-        if (msg.type === 'ptt') {
-          if (msg.speaking) {
-            if (state.isTransmitting) forceReleaseTx();
-            state.isReceiving = true;
-            SoundEngine.txStart();
-            renderState('RX');
-          } else {
-            state.isReceiving = false;
-            SoundEngine.rogerBeep();
-            renderState('READY');
-          }
-        }
-      });
-
-      conn.on('close', handlePeerDrop);
-      conn.on('error', handlePeerDrop);
-    }
-
-    function bindMediaCall(call) {
-      state.mediaConn = call;
-
-      call.on('stream', (remoteStream) => {
+      // Recibir pista de audio remota
+      pc.ontrack = (event) => {
+        const remoteStream = event.streams[0];
+        if (!remoteStream) return;
         state.remoteStream = remoteStream;
 
-        // 1. Asignar stream al elemento <audio> visible en el DOM
         el.remoteAudio.srcObject = remoteStream;
         el.remoteAudio.muted = state.rxMuted;
-        el.remoteAudio.play().catch((err) => {
-          notify('Toca la pantalla para activar el altavoz', 4000);
+        el.remoteAudio.play().catch(() => {
+          setDiagnostic('Toca la pantalla para activar el sonido entrante', 'error');
         });
 
-        // 2. Conectar analizador remoto para visualizar onda RX
         try {
           SoundEngine.unlock();
           const remoteSrc = state.audioCtx.createMediaStreamSource(remoteStream);
@@ -844,95 +806,268 @@
           state.remoteAnalyser.fftSize = 64;
           remoteSrc.connect(state.remoteAnalyser);
         } catch (e) {}
-      });
+      };
 
-      call.on('close', handlePeerDrop);
-      call.on('error', handlePeerDrop);
-    }
+      // Monitorear estado ICE en tiempo real
+      pc.oniceconnectionstatechange = () => {
+        const iceState = pc.iceConnectionState;
+        el.diagIce.textContent = iceState.toUpperCase();
 
-    function handlePeerDrop() {
-      if (!state.isConnected) return;
-      state.isConnected = false;
-      state.isReceiving = false;
-      clearInterval(state.heartbeatTimer);
-      forceReleaseTx();
-      notify('El otro dispositivo se desconectó');
+        if (iceState === 'connected' || iceState === 'completed') {
+          if (!state.isConnected) {
+            state.isConnected = true;
+            SoundEngine.connected();
+          }
+          setDiagnostic('Conectado · Audio WebRTC activo', 'ok');
+          renderState(state.isReceiving ? 'RX' : (state.isTransmitting ? 'TX' : 'READY'));
+        } else if (iceState === 'checking') {
+          setDiagnostic('Negociando ruta de red (ICE)...');
+        } else if (iceState === 'disconnected' || iceState === 'failed') {
+          state.isConnected = false;
+          state.isReceiving = false;
+          forceReleaseTx();
+          setDiagnostic('Se perdió la conexión de audio con el compañero', 'error');
+          if (state.myRole === 'host') {
+            renderState('WAITING');
+          }
+        }
+      };
 
-      if (state.isHost) {
-        renderState('WAITING');
-      } else {
-        leaveSession();
-      }
-    }
-
-    function leaveSession() {
-      forceReleaseTx();
-      clearInterval(state.heartbeatTimer);
-      if (state.animFrameId) cancelAnimationFrame(state.animFrameId);
-      if (state.dataConn) state.dataConn.close();
-      if (state.mediaConn) state.mediaConn.close();
-      if (state.peer) state.peer.destroy();
-
-      if (state.localStream) {
-        state.localStream.getTracks().forEach(t => t.stop());
-        state.localStream = null;
-        state.audioTrack = null;
-      }
-
-      if (state.wakeLock) {
-        state.wakeLock.release().catch(() => {});
-        state.wakeLock = null;
-      }
-
-      state.peer = null;
-      state.dataConn = null;
-      state.mediaConn = null;
-      state.remoteStream = null;
-      state.isConnected = false;
-      state.isReceiving = false;
-      state.loopbackEnabled = false;
-      el.btnLoopback.textContent = 'ECO: OFF';
-      el.btnLoopback.classList.remove('text-[#FF4D00]', 'border-[#FF4D00]/50');
-      state.roomCode = '';
-
-      const url = new URL(window.location.href);
-      url.searchParams.delete('room');
-      window.history.replaceState({}, '', url);
-
-      renderState('SETUP');
+      return pc;
     }
 
     // ==========================================
-    // 6. CONTROL TÁCTIL PUSH-TO-TALK (PTT)
+    // 7. FLUJO DE CREACIÓN (HOST) Y UNIÓN (GUEST)
+    // ==========================================
+    async function createChannel() {
+      try {
+        await acquireMicrophone();
+      } catch (err) {
+        setDiagnostic(err.message, 'error');
+        return;
+      }
+
+      const code = generateRoomCode();
+      state.roomCode = code;
+      state.myRole = 'host';
+
+      const url = new URL(window.location.href);
+      url.searchParams.set('room', code);
+      window.history.replaceState({}, '', url);
+
+      renderState('WAITING');
+      setupWaveformVisualizer();
+      setDiagnostic('1. Micrófono OK → 2. Generando canal en Firebase...');
+
+      try {
+        const pc = setupPeerConnection();
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+
+        // Esperar hasta 1.5s para empaquetar candidatos ICE dentro del Offer
+        await waitForIceGathering(pc, 1500);
+
+        await fbRequest(`/rooms/${code}.json`, 'PUT', {
+          offer: {
+            type: pc.localDescription.type,
+            sdp: pc.localDescription.sdp
+          },
+          answer: null,
+          state: 'waiting',
+          talking: null,
+          updatedAt: Date.now()
+        });
+
+        setDiagnostic(`1. Mic OK → 2. Canal ${code} listo → 3. Esperando compañero...`, 'ok');
+
+        // Iniciar escucha de turno (PTT)
+        startFloorControlListener(code);
+
+        // Polling cada 900ms esperando la respuesta (Answer) del invitado
+        clearInterval(state.answerPollTimer);
+        state.answerPollTimer = setInterval(async () => {
+          try {
+            const answer = await fbRequest(`/rooms/${code}/answer.json`, 'GET');
+            if (answer && answer.sdp && pc.signalingState !== 'stable') {
+              clearInterval(state.answerPollTimer);
+              setDiagnostic('Compañero detectado · Enlazando audio...');
+              renderState('CONNECTING');
+              await pc.setRemoteDescription(new RTCSessionDescription(answer));
+            }
+          } catch (e) {}
+        }, 900);
+
+      } catch (err) {
+        setDiagnostic(err.message, 'error');
+        leaveSession(false);
+      }
+    }
+
+    async function joinChannel(rawCode) {
+      const code = rawCode.trim().toUpperCase();
+      if (code.length !== 4) {
+        setDiagnostic('Ingresa un código válido de 4 caracteres', 'error');
+        el.inputCode.focus();
+        return;
+      }
+
+      try {
+        await acquireMicrophone();
+      } catch (err) {
+        setDiagnostic(err.message, 'error');
+        return;
+      }
+
+      state.roomCode = code;
+      state.myRole = 'guest';
+
+      const url = new URL(window.location.href);
+      url.searchParams.set('room', code);
+      window.history.replaceState({}, '', url);
+
+      renderState('CONNECTING');
+      setupWaveformVisualizer();
+      setDiagnostic(`1. Micrófono OK → 2. Buscando canal ${code}...`);
+
+      try {
+        const roomData = await fbRequest(`/rooms/${code}.json`, 'GET');
+        if (!roomData || !roomData.offer || !roomData.offer.sdp) {
+          throw new Error(`Canal ${code} no encontrado o expirado. Verifica el código.`);
+        }
+
+        setDiagnostic(`Canal ${code} encontrado · Conectando audio...`);
+        const pc = setupPeerConnection();
+
+        await pc.setRemoteDescription(new RTCSessionDescription(roomData.offer));
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+
+        // Esperar hasta 1.5s para empaquetar candidatos ICE dentro del Answer
+        await waitForIceGathering(pc, 1500);
+
+        await fbRequest(`/rooms/${code}.json`, 'PATCH', {
+          answer: {
+            type: pc.localDescription.type,
+            sdp: pc.localDescription.sdp
+          },
+          state: 'connected',
+          updatedAt: Date.now()
+        });
+
+        startFloorControlListener(code);
+
+      } catch (err) {
+        setDiagnostic(err.message, 'error');
+        leaveSession(false);
+      }
+    }
+
+    // ==========================================
+    // 8. CONTROL DE TURNO EN TIEMPO REAL (SSE + POLLING)
+    // ==========================================
+    function handleTalkingUpdate(talkingData) {
+      if (!state.roomCode) return;
+
+      // Expiración automática de turno tras 15s por seguridad si alguien pierde señal
+      const isValidTalk =
+        talkingData &&
+        typeof talkingData === 'object' &&
+        talkingData.by &&
+        Date.now() - (talkingData.at || 0) < 15000;
+
+      if (isValidTalk && talkingData.by !== state.myRole) {
+        if (!state.isReceiving) {
+          if (state.isTransmitting) forceReleaseTx(false);
+          state.isReceiving = true;
+          SoundEngine.txStart();
+          renderState('RX');
+        }
+      } else {
+        if (state.isReceiving) {
+          state.isReceiving = false;
+          SoundEngine.rogerBeep();
+          renderState(state.isConnected ? 'READY' : 'WAITING');
+        }
+      }
+    }
+
+    function startFloorControlListener(code) {
+      stopFloorControlListener();
+
+      // 1. EventSource SSE nativo contra Firebase REST API (latencia < 100ms)
+      try {
+        const sse = new EventSource(`${DB_URL}/rooms/${code}/talking.json`);
+        state.sseSource = sse;
+
+        const onSseEvent = (event) => {
+          try {
+            const parsed = JSON.parse(event.data);
+            if (parsed && 'data' in parsed) {
+              handleTalkingUpdate(parsed.data);
+            }
+          } catch (e) {}
+        };
+
+        sse.addEventListener('put', onSseEvent);
+        sse.addEventListener('patch', onSseEvent);
+      } catch (e) {}
+
+      // 2. Polling de respaldo cada 600ms (útil en redes móviles donde SSE se suspende)
+      state.talkingPollTimer = setInterval(async () => {
+        try {
+          const talking = await fbRequest(`/rooms/${code}/talking.json`, 'GET');
+          handleTalkingUpdate(talking);
+        } catch (e) {}
+      }, 600);
+    }
+
+    function stopFloorControlListener() {
+      if (state.sseSource) {
+        state.sseSource.close();
+        state.sseSource = null;
+      }
+      clearInterval(state.talkingPollTimer);
+      clearInterval(state.answerPollTimer);
+    }
+
+    // ==========================================
+    // 9. CONTROL TÁCTIL PUSH-TO-TALK (PTT)
     // ==========================================
     function beginTx(e) {
       if (e) e.preventDefault();
-      // Permitir transmitir si está conectado O si el modo ECO de prueba está activo
       const canTransmit = state.isConnected || state.loopbackEnabled;
-      if (!canTransmit || state.isReceiving || state.isTransmitting || !state.audioTrack) return;
+      if (!canTransmit || state.isTransmitting || !state.localAudioTrack) return;
+
+      // Si el otro usuario está hablando, vibrar y emitir tono de ocupado
+      if (state.isReceiving) {
+        SoundEngine.busyBuzz();
+        if (navigator.vibrate) navigator.vibrate([40, 30, 40]);
+        return;
+      }
 
       SoundEngine.unlock();
-      // Asegurar que el audio remoto esté activo en iOS al tocar PTT
       if (el.remoteAudio.srcObject && el.remoteAudio.paused) {
         el.remoteAudio.play().catch(() => {});
       }
 
       state.isTransmitting = true;
-      state.audioTrack.enabled = true;
-
-      if (state.dataConn && state.dataConn.open) {
-        state.dataConn.send({ type: 'ptt', speaking: true });
-      }
+      state.localAudioTrack.enabled = true;
 
       if (navigator.vibrate) navigator.vibrate(35);
       SoundEngine.txStart();
       renderState('TX');
+
+      if (state.roomCode && state.isConnected) {
+        fbRequest(`/rooms/${state.roomCode}.json`, 'PATCH', {
+          talking: { by: state.myRole, at: Date.now() }
+        }).catch(() => {});
+      }
     }
 
     function endTx(e) {
       if (e) e.preventDefault();
       if (!state.isTransmitting) return;
-      forceReleaseTx();
+      forceReleaseTx(true);
       SoundEngine.rogerBeep();
       if (navigator.vibrate) navigator.vibrate([20, 25, 20]);
 
@@ -943,54 +1078,86 @@
       }
     }
 
-    function forceReleaseTx() {
+    function forceReleaseTx(notifyFirebase = true) {
       state.isTransmitting = false;
-      if (state.audioTrack) {
-        state.audioTrack.enabled = false;
+      if (state.localAudioTrack) {
+        state.localAudioTrack.enabled = false;
       }
-      if (state.dataConn && state.dataConn.open) {
-        state.dataConn.send({ type: 'ptt', speaking: false });
+      if (notifyFirebase && state.roomCode) {
+        fbRequest(`/rooms/${state.roomCode}.json`, 'PATCH', {
+          talking: null
+        }).catch(() => {});
       }
     }
 
+    function leaveSession(resetDiag = true) {
+      forceReleaseTx(true);
+      stopFloorControlListener();
+
+      if (state.animFrameId) cancelAnimationFrame(state.animFrameId);
+      if (state.pc) {
+        state.pc.close();
+        state.pc = null;
+      }
+      if (state.localStream) {
+        state.localStream.getTracks().forEach((t) => t.stop());
+        state.localStream = null;
+        state.localAudioTrack = null;
+      }
+      if (state.wakeLock) {
+        state.wakeLock.release().catch(() => {});
+        state.wakeLock = null;
+      }
+
+      state.remoteStream = null;
+      state.isConnected = false;
+      state.isReceiving = false;
+      state.loopbackEnabled = false;
+      el.btnLoopback.textContent = 'ECO: OFF';
+      el.btnLoopback.classList.remove('text-[#FF4D00]', 'border-[#FF4D00]/50');
+      state.roomCode = '';
+      state.myRole = '';
+
+      const url = new URL(window.location.href);
+      url.searchParams.delete('room');
+      window.history.replaceState({}, '', url);
+
+      if (resetDiag) {
+        setDiagnostic('Listo · Firebase RTDB conectado');
+      }
+      renderState('SETUP');
+    }
+
     // ==========================================
-    // 7. EVENTOS DE INTERFAZ Y DIAGNÓSTICO
+    // 10. EVENTOS DE INTERFAZ Y AUTOTEST
     // ==========================================
-    el.btnCreate.addEventListener('click', () => {
-      startSession(createCode(), true);
-    });
+    el.btnCreate.addEventListener('click', createChannel);
 
     el.btnJoin.addEventListener('click', () => {
-      const code = el.inputCode.value.trim().toUpperCase();
-      if (code.length !== 4) {
-        notify('Ingresa un código válido de 4 caracteres');
-        el.inputCode.focus();
-        return;
-      }
-      startSession(code, false);
+      joinChannel(el.inputCode.value);
     });
 
     el.inputCode.addEventListener('keyup', (e) => {
       if (e.key === 'Enter') el.btnJoin.click();
     });
 
-    // Botón de diagnóstico rápido desde la pantalla inicial
+    // Autotest de hardware en pantalla inicial
     el.btnTestHw.addEventListener('click', async () => {
       try {
         el.btnTestHw.textContent = 'Probando...';
-        await initMicrophoneAndAudio();
+        await acquireMicrophone();
         SoundEngine.connected();
-        notify('Micrófono y altavoz listos en este dispositivo', 3500);
-        el.btnTestHw.textContent = 'Audio OK ✓';
+        setDiagnostic('Micrófono y altavoz listos en este dispositivo ✓', 'ok');
+        el.btnTestHw.textContent = 'Hardware OK ✓';
         el.btnTestHw.classList.add('text-emerald-400', 'border-emerald-800');
       } catch (err) {
-        notify(err.message, 4500);
+        setDiagnostic(err.message, 'error');
         el.btnTestHw.textContent = 'Error Mic ✕';
         el.btnTestHw.classList.add('text-red-400');
       }
     });
 
-    // Botón ECO para escuchar tu propia voz localmente y verificar el micrófono en la sala
+    // Toggle ECO (monitor local para probar micrófono en sala)
     el.btnLoopback.addEventListener('click', () => {
       state.loopbackEnabled = !state.loopbackEnabled;
       if (state.loopbackGain && state.audioCtx) {
@@ -1007,27 +1174,30 @@
       if (!state.isConnected) {
         renderState('WAITING');
       }
-      notify(
+      setDiagnostic(
         state.loopbackEnabled
-          ? 'Eco activado: mantén PTT para escucharte a ti mismo'
-          : 'Eco desactivado',
-        3000
+          ? 'Monitor ECO activo: mantén PTT para escucharte a ti mismo'
+          : 'Monitor ECO desactivado'
       );
     });
 
-    el.btnLeave.addEventListener('click', leaveSession);
+    el.btnLeave.addEventListener('click', () => leaveSession(true));
 
+    // Eventos táctiles y de puntero para PTT
     el.btnPtt.addEventListener('pointerdown', beginTx);
     el.btnPtt.addEventListener('pointerup', endTx);
     el.btnPtt.addEventListener('pointerleave', endTx);
     el.btnPtt.addEventListener('pointercancel', endTx);
     el.btnPtt.addEventListener('contextmenu', (e) => e.preventDefault());
+    window.addEventListener('blur', () => {
+      if (state.isTransmitting) endTx();
+    });
 
     el.btnToggleSfx.addEventListener('click', () => {
       state.sfxEnabled = !state.sfxEnabled;
       el.iconSfxOn.classList.toggle('hidden', !state.sfxEnabled);
       el.iconSfxOff.classList.toggle('hidden', state.sfxEnabled);
-      notify(state.sfxEnabled ? 'Tonos activados' : 'Tonos silenciados', 1800);
+      setDiagnostic(state.sfxEnabled ? 'Tonos de radio activados' : 'Tonos de radio silenciados');
     });
 
     el.btnMuteRx.addEventListener('click', () => {
@@ -1045,15 +1215,15 @@
       temp.setSelectionRange(0, 99999);
       try {
         document.execCommand('copy');
-        notify(successMsg);
+        setDiagnostic(successMsg, 'ok');
       } catch (e) {
-        notify(`Código: ${state.roomCode}`);
+        setDiagnostic(`Código del canal: ${state.roomCode}`);
       }
       document.body.removeChild(temp);
     }
 
     el.btnCopy.addEventListener('click', () => {
-      if (state.roomCode) copyTextFallback(state.roomCode, `Código ${state.roomCode} copiado`);
+      if (state.roomCode) copyTextFallback(state.roomCode, `Código ${state.roomCode} copiado al portapapeles`);
     });
 
     el.btnShare.addEventListener('click', async () => {
@@ -1067,19 +1237,20 @@
             url: shareUrl
           });
         } catch (e) {
-          copyTextFallback(shareUrl, 'Enlace directo copiado');
+          copyTextFallback(shareUrl, 'Enlace directo copiado al portapapeles');
         }
       } else {
-        copyTextFallback(shareUrl, 'Enlace directo copiado');
+        copyTextFallback(shareUrl, 'Enlace directo copiado al portapapeles');
       }
     });
 
+    // Inicialización al cargar la página
     window.addEventListener('DOMContentLoaded', () => {
       const params = new URLSearchParams(window.location.search);
       const roomParam = params.get('room');
       if (roomParam && roomParam.trim().length === 4) {
         el.inputCode.value = roomParam.trim().toUpperCase();
-        notify(`Canal ${el.inputCode.value} listo — Pulsa Conectar`, 4500);
+        setDiagnostic(`Canal ${el.inputCode.value} detectado · Pulsa UNIRSE`, 'ok');
       }
       renderState('SETUP');
     });
